@@ -1,4 +1,4 @@
-# Enterprise Agentic RAG: LangGraph · Guardrails · LLM Gateway · RAGAS Evals
+# Enterprise Agentic RAG: LangGraph · Guardrails · Direct Groq LLMs · RAGAS Evals
 
 ```mermaid
 graph LR
@@ -33,10 +33,10 @@ graph LR
         FR["⚡ FlashRank\nLocal Reranker"]
     end
 
-    %% ── LLM Gateway ──────────────────────────────────────────────────────────
-    subgraph GATEWAY ["🌐  LLM Gateway"]
+    %% ── LLM Provider ───────────────────────────────────────────────────────
+    subgraph GATEWAY ["🌐  LLM Provider"]
         direction TB
-        PK["🔀 Portkey\nUnified Gateway"]
+        PK["🦙 Groq\nDirect LLM"]
         G1["🦙 Groq Primary\nLlama 3.3 · 70B"]
         G2["🦙 Groq Fallback\nLlama 3.1 · 8B"]
     end
@@ -53,7 +53,7 @@ graph LR
     subgraph OBS ["📡  Observability"]
         direction LR
         LF["🔥 Pydantic\nLogfire"]
-        LS["🦜 LangSmith\nTracing"]
+        LS["🔥 Logfire\nTracing"]
     end
 
     %% ── Evals ────────────────────────────────────────────────────────────────
@@ -173,7 +173,7 @@ graph TB
     subgraph OBS ["7. Monitoring & Observability"]
         direction LR
         LF["🔥 Pydantic Logfire\nDistributed Tracing"]
-        LS["🦜 LangSmith\nAgent Step Tracing"]
+        LS["🔥 Logfire\nAgent Step Tracing"]
     end
 
     %% ── Query Flow ───────────────────────────────────────────────────────────
@@ -238,10 +238,10 @@ graph TB
     B["⚡ 2. FastAPI + 🛡️ NeMo Guardrails"]
     C["🧠 3. LangGraph Agent\nPlanner → Retriever → Responder"]
     D["🗄️ 4. Qdrant Cloud\n+ FlashRank Reranker"]
-    E["🌐 5. Portkey Gateway\nGroq Llama 3.3 70B · Fallback 8B"]
+    E["🌐 5. Direct Groq LLMs\nGroq Llama 3.3 70B · Fallback 8B"]
     F["📥 6. Data Ingestion\nLocal Parsers · Gemini Embeddings · processed_data/"]
     G["🧪 7. RAGAS Evals\nFaithfulness · Precision · Recall · Correctness"]
-    H["📡 8. Monitoring\nLogfire · LangSmith"]
+    H["📡 8. Monitoring\nLogfire"]
 
     A --> B --> C
     C --> D --> C
