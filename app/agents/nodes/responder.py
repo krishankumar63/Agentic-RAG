@@ -1,13 +1,15 @@
 import logfire
 from app.agents.state import AgentState
-from app.gateway import portkey_client, extract_cache_status
+from app.gateway import get_langchain_llm
+
+
+llm = get_langchain_llm(feature="responder")
 
 
 def generate_node(state: AgentState):
     """
     Synthesizes a response using both Documentation Context AND Conversation History.
-    Uses the native Portkey client (not LangChain) so we can read the
-    x-portkey-cache-status response header and surface Cache: Hit in the UI.
+    This now calls Groq directly, keeping the rest of the RAG flow unchanged.
     """
     query = state["current_query"]
 
@@ -58,27 +60,16 @@ def generate_node(state: AgentState):
 
     with logfire.span("✍️ LLM Synthesis"):
         try:
-            response = portkey_client.chat.completions.create(
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.1
-            )
-            content = response.choices[0].message.content
-            cache_status = extract_cache_status(response)
-            is_cache_hit = cache_status == "HIT"
+            response = llm.invoke(prompt)
+            content = response.content if hasattr(response, "content") else str(response)
+            if not isinstance(content, str):
+                content = str(content)
 
-            if is_cache_hit:
-                logfire.info("⚡ Gateway Cache Hit — response served from Portkey cache.")
-                plan_update = state["plan"] + ["Cache: Hit ⚡"]
-                status = "Cache hit — instant response."
-            else:
-                logfire.info("✅ Response synthesised via LLM.")
-                plan_update = state["plan"]
-                status = "Response generated."
-
+            logfire.info("✅ Response synthesised via LLM.")
             return {
                 "final_answer": content,
-                "status": status,
-                "plan": plan_update,
+                "status": "Response generated.",
+                "plan": state["plan"],
                 "messages": [{"role": "assistant", "content": content}]
             }
 

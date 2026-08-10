@@ -49,6 +49,7 @@ def run_pipeline(golden_dataset: dict, progress_callback=None) -> dict:
     n = len(samples)
 
     with logfire.span("🚀 Eval Phase 1 — Live Pipeline", total_samples=n):
+        # in a for loop we are making post request to our rag applications for every data in golden dataset
         for i, sample in enumerate(samples):
             question = sample["question"]
 
@@ -103,14 +104,23 @@ def run_pipeline(golden_dataset: dict, progress_callback=None) -> dict:
                 time.sleep(DELAY_BETWEEN_CALLS)
 
     return dataset
+# now we will have the complete dataset
 
 
 def save_results(dataset: dict, path: str) -> None:
-    with open(path, "w") as f:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
         json.dump(dataset, f, indent=2)
-        
-        
+
+
+def load_json(path: str):
+    if not os.path.exists(path):
+        return None
+    with open(path, "r", encoding="utf-8-sig") as f:
+        return json.load(f)
+
+
 def load_golden_dataset() -> dict:
     golden_path = os.path.join(os.path.dirname(__file__), "golden_dataset.json")
-    with open(golden_path) as f:
+    with open(golden_path, "r", encoding="utf-8-sig") as f:
         return json.load(f)

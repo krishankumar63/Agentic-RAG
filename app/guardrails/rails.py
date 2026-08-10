@@ -1,6 +1,7 @@
 import logfire
 from langchain_groq import ChatGroq
 from nemoguardrails import RailsConfig, LLMRails
+# RailsConfig is used to configure the guardrails, and LLMRails is the main class for running the guardrails.
 
 from app.config import settings
 from app.guardrails.colang_rules import COLANG_CONTENT, YAML_CONTENT, RAIL_INDICATORS
@@ -17,6 +18,7 @@ def initialize_rails() -> None:
     """
     global _rails
 
+    # we override the model as written in YAML_CONTENT because we want to use a smaller model for the guardrails
     guard_llm = ChatGroq(
         api_key=settings.GROQ_API_KEY,
         model="llama-3.1-8b-instant",
@@ -43,6 +45,8 @@ def guard(message: str) -> tuple[bool, str | None]:
                                 skip the RAG pipeline entirely.
         (False, None)          — message is clean; proceed to LangGraph.
     """
+
+    # Check if the guardrails have been initialized
     if _rails is None:
         logfire.warning("⚠️ Guardrails not initialised — skipping gate.")
         return False, None

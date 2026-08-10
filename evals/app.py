@@ -37,6 +37,11 @@ st.set_page_config(
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
+ARTIFACTS_DIR = os.path.join(os.path.dirname(__file__), "artifacts")
+PIPELINE_OUTPUT_PATH = os.path.join(ARTIFACTS_DIR, "enriched_dataset.json")
+GUARDRAILS_OUTPUT_PATH = os.path.join(ARTIFACTS_DIR, "guardrails_results.json")
+METRICS_OUTPUT_PATH = os.path.join(ARTIFACTS_DIR, "metric_results.json")
+
 SCORE_COLORS = {
     "green":  "#d4edda",
     "yellow": "#fff3cd",
@@ -73,8 +78,73 @@ def _color_score(val):
 def _render_metric_table(df: pd.DataFrame, metric_col: str, title: str):
     avg = df[metric_col].mean()
     st.markdown(f"**{title}** — AVG: {_badge(avg)} `{avg:.2f}` {_grade(avg)}")
-    styled = df.style.applymap(_color_score, subset=[metric_col]).format({metric_col: "{:.3f}"})
-    st.dataframe(styled, use_container_width=True, hide_index=True)
+
+    styler = df.style
+    if hasattr(styler, "map"):
+        styler = styler.map(_color_score, subset=[metric_col])
+    else:
+        styler = styler.applymap(_color_score, subset=[metric_col])
+
+    styled = styler.format({metric_col: "{:.3f}"})
+    st.dataframe(styled, width="stretch", hide_index=True)
+
+
+def _ensure_artifacts_dir():
+    os.makedirs(ARTIFACTS_DIR, exist_ok=True)
+
+
+def _write_json(path: str, payload) -> None:
+    _ensure_artifacts_dir()
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2)
+
+
+def _read_json(path: str):
+    if not os.path.exists(path):
+        return None
+    with open(path, "r", encoding="utf-8-sig") as f:
+        return json.load(f)
+
+
+def _save_pipeline_artifact(dataset: dict) -> None:
+    _write_json(PIPELINE_OUTPUT_PATH, dataset)
+
+
+def _load_pipeline_artifact():
+    return _read_json(PIPELINE_OUTPUT_PATH)
+
+
+def _save_guardrails_artifact(results: list) -> None:
+    _write_json(GUARDRAILS_OUTPUT_PATH, results)
+
+
+def _load_guardrails_artifact():
+    return _read_json(GUARDRAILS_OUTPUT_PATH)
+
+
+def _save_metric_artifact(metric_results: dict) -> None:
+    payload = {}
+    for key, df in metric_results.items():
+        payload[key] = {
+            "columns": df.columns.tolist(),
+            "rows": df.to_dict(orient="records"),
+        }
+    _write_json(METRICS_OUTPUT_PATH, payload)
+
+
+def _load_metric_artifact():
+    payload = _read_json(METRICS_OUTPUT_PATH)
+    if not payload:
+        return None
+    metric_results = {}
+    for key, item in payload.items():
+        if isinstance(item, dict) and "rows" in item:
+            df = pd.DataFrame(item.get("rows", []))
+            columns = item.get("columns")
+            if columns:
+                df = df.reindex(columns=columns)
+            metric_results[key] = df
+    return metric_results or None
 
 
 def _run_async(coro):
@@ -88,13 +158,14 @@ def _run_async(coro):
 if "golden" not in st.session_state:
     st.session_state.golden = load_golden_dataset()
 if "pipeline_done" not in st.session_state:
-    st.session_state.pipeline_done = False
+    saved_pipeline = _load_pipeline_artifact()
+    st.session_state.pipeline_done = bool(saved_pipeline)
 if "enriched_dataset" not in st.session_state:
-    st.session_state.enriched_dataset = None
+    st.session_state.enriched_dataset = _load_pipeline_artifact()
 if "guardrails_results" not in st.session_state:
-    st.session_state.guardrails_results = None
+    st.session_state.guardrails_results = _load_guardrails_artifact()
 if "metric_results" not in st.session_state:
-    st.session_state.metric_results = None
+    st.session_state.metric_results = _load_metric_artifact()
 if "pipeline_rows" not in st.session_state:
     st.session_state.pipeline_rows = []
 
@@ -137,7 +208,7 @@ with tab1:
             "Expected Tool": s["expected_tools"][0] if s["expected_tools"] else "—",
         })
     df_golden = pd.DataFrame(rag_rows)
-    st.dataframe(df_golden, use_container_width=True, hide_index=True)
+    st.dataframe(df_golden, width="stretch", hide_index=True)
     st.caption(f"✅ {len(rag_rows)} golden RAG samples from 5 enterprise docs")
 
     st.divider()
@@ -158,7 +229,7 @@ with tab1:
             "Type": g["type"],
             "Description": g["description"],
         })
-    st.dataframe(pd.DataFrame(g_rows), use_container_width=True, hide_index=True)
+    st.dataframe(pd.DataFrame(g_rows), width="stretch", hide_index=True)
     st.caption("6 guardrails test cases: 3 adversarial (should block) + 3 legit (should pass)")
 
     with st.expander("View raw golden_dataset.json"):
@@ -222,7 +293,7 @@ with tab2:
                 })
                 live_table_slot.dataframe(
                     pd.DataFrame(st.session_state.pipeline_rows),
-                    use_container_width=True,
+                    width="stretch",
                     hide_index=True,
                 )
                 progress_bar.progress(
@@ -233,6 +304,7 @@ with tab2:
         with logfire.span("🚀 Streamlit — Run Pipeline Button"):
             enriched = run_pipeline(golden, progress_callback=pipeline_cb)
             st.session_state.enriched_dataset = enriched
+            _save_pipeline_artifact(enriched)
 
         progress_bar.progress(100, text="✅ All responses collected!")
         status_slot.success(f"💾 {len(enriched['rag_samples'])} responses stored in session.")
@@ -254,6 +326,7 @@ with tab2:
             g_metrics = compute_guardrails_metrics(g_results)
             st.session_state.guardrails_results = g_results
             st.session_state.pipeline_done = True
+            _save_guardrails_artifact(g_results)
 
         g_progress.progress(100, text="✅ Guardrails tests complete!")
 
@@ -270,7 +343,7 @@ with tab2:
                 "Actual": "Blocked" if r["actual_blocked"] else "Passed",
                 "Result": result_label,
             })
-        st.dataframe(pd.DataFrame(g_rows_live), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(g_rows_live), width="stretch", hide_index=True)
 
         mc1, mc2, mc3, mc4 = st.columns(4)
         mc1.metric("Correct", f"{g_metrics['correct']}/{g_metrics['total']}")
@@ -291,7 +364,7 @@ with tab2:
                 "Tool Called": s["actual_tools_called"][0] if s.get("actual_tools_called") else "—",
                 "Contexts Retrieved": len(s.get("actual_contexts", [])),
             })
-        st.dataframe(pd.DataFrame(resp_rows), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(resp_rows), width="stretch", hide_index=True)
 
         if st.session_state.guardrails_results:
             st.divider()
@@ -307,7 +380,7 @@ with tab2:
                     "Input": r["input"][:70],
                     "Result": result_label,
                 })
-            st.dataframe(pd.DataFrame(g_rows_prev), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(g_rows_prev), width="stretch", hide_index=True)
             gm = compute_guardrails_metrics(st.session_state.guardrails_results)
             mc1, mc2, mc3, mc4 = st.columns(4)
             mc1.metric("Correct", f"{gm['correct']}/{gm['total']}")
@@ -366,6 +439,7 @@ with tab3:
                     run_all_metrics(st.session_state.enriched_dataset, status_cb=status_cb)
                 )
                 st.session_state.metric_results = metric_results
+                _save_metric_artifact(metric_results)
 
             status_slot.success("✅ All 6 experiments complete!")
 
